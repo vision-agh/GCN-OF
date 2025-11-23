@@ -25,6 +25,7 @@ class MVSECDataset(Dataset):
         self.mvsec_root: str = cfg.mvsec_root
         self.camera_mode: str = cfg.camera.mode
         self.event_window: float = float(cfg.event_window)
+        self.event_count: int = cfg.event_count
 
         self.radius: int = cfg.graph.radius
         self.norm_t: int = cfg.graph.norm_t
@@ -134,13 +135,33 @@ class MVSECDataset(Dataset):
     # ----------------------------------------------------------
     def _load_item(self, seq_idx, frame_idx, cam):
         # fast flow read
-        x_flow = self._flow[seq_idx][0][frame_idx]
-        y_flow = self._flow[seq_idx][1][frame_idx]
+        x_flow = self._flow[seq_idx][0][frame_idx].copy()
+        y_flow = self._flow[seq_idx][1][frame_idx].copy()
         flow = np.stack([x_flow, y_flow], axis=0)
+
 
         # fast events selection
         start_idx, end_idx = self._event_index[cam][seq_idx][frame_idx]
         events = self._events[cam][seq_idx][start_idx:end_idx]
+
+        # ------------------- AUGMENTATIONS ----------------------
+        if self.split == "train":
+
+            # Temporal warping  (Uniform 0.5–1.5)
+            warp = np.random.uniform(0.5, 1.5)
+            events[:, 2] *= warp
+            x_flow *= warp
+            y_flow *= warp
+
+            # XY flip with flow direction update
+            if random.random() < 0.5:
+                events[:, 0] = self.width - 1 - events[:, 0]   # flip x coord
+                x_flow *= -1                                   # reverse horizontal flow
+        # --------------------------------------------------------
+
+        # cut events
+        if self.event_count:
+            events = events[:self.event_count]
 
         if TORCH_AVAILABLE:
             flow = torch.from_numpy(flow)
@@ -148,12 +169,18 @@ class MVSECDataset(Dataset):
 
         f, p, e = self.generate_graph(events)
 
+        # Edge dropout (except self loops)
+        if self.split == "train":
+            mask = torch.rand(e.size(0)) > 0.25
+            keep = mask | (e[:, 0] == e[:, 1])   # keep self loops
+            e = e[keep]
+
         return {
             "events": events,
-            "features": f,
-            "positions": p,
-            "edges": e,
-            "flow": flow,
+            "features": f.to(torch.float32),
+            "positions": p.to(torch.float32),
+            "edges": e.to(torch.long),
+            "flow": flow.to(torch.float32),
             "timestamp": float(self._flow_ts[seq_idx][frame_idx]),
             "sequence": self.sequence_names[seq_idx],
             "camera": cam,
@@ -166,7 +193,7 @@ class MVSECDataset(Dataset):
         t_min = events[:, 2].min()
         t_max = events[:, 2].max()
         clip_events = events.clone()
-        clip_events[:, 2] = (clip_events[:, 2] - t_min) / (t_max - t_min) * self.norm_t
+        clip_events[:, 2] = (clip_events[:, 2] - t_min) / (self.event_window) * self.norm_t
         clip_events = clip_events.to(torch.int64)
         features, positions, edges = matrix_neighbour.generate_edges(clip_events, self.radius, 346, 260)
         return features, positions, edges
