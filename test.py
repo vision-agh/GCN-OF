@@ -30,7 +30,7 @@ test_loader  = DataLoader(test_ds, batch_size=4, num_workers=4,
 device = "cuda"
 model = Model().to(device)
 
-optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
+optimizer = optim.Adam(model.parameters(), lr=1e-2, weight_decay=1e-5)
 
 
 # ==================================================

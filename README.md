@@ -85,5 +85,3 @@ data/
         │   └── y_flow_dist.npy
         └── indoor_flying4_gt_flow_dist.npz
 ```
-
-You can just copy-paste this into your README.
