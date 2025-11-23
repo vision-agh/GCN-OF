@@ -1,5 +1,3 @@
-Here’s a cleaned-up, corrected README snippet you can drop in:
-
 ```bash
 # Create conda env
 conda create -n gcn_of python=3.9

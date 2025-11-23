@@ -53,7 +53,7 @@ class Model(torch.nn.Module):
             else:
                 x = self.convs[i-1](x, pos, edge_index)
 
-            x = self.norms[0](x)
+            x = self.norms[i](x)
             x = F.relu(x, inplace=True)
             embeddings.append(x)
         z = torch.cat(embeddings, dim=-1)
