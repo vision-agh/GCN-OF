@@ -137,59 +137,85 @@ class MVSECDataset(Dataset):
 
     # ----------------------------------------------------------
     def _load_item(self, seq_idx, frame_idx, cam):
-        # fast flow read
-        x_flow = self._flow[seq_idx][0][frame_idx].copy()
-        y_flow = self._flow[seq_idx][1][frame_idx].copy()
-        flow = np.stack([x_flow, y_flow], axis=0)
 
-
-        # fast events selection
+        # ----- get raw event slice -----
         start_idx, end_idx = self._event_index[cam][seq_idx][frame_idx]
         events = self._events[cam][seq_idx][start_idx:end_idx].copy()
 
-        # AUGMENTATIONS
-        if self.split == "train":
-            warp = np.random.uniform(0.5, 1.5)
-            events[:, 2] *= warp
-            x_flow *= warp
-            y_flow *= warp
-
-            if random.random() < 0.5:
-                events[:, 0] = self.width - 1 - events[:, 0]
-                x_flow = np.flip(x_flow, axis=1).copy()
-                y_flow = np.flip(y_flow, axis=1).copy()
-                x_flow *= -1
-
-        flow = np.stack([x_flow, y_flow], axis=0)  # stack here AFTER augmentation
-        # --------------------------------------------------------
-
-        # cut events
         if self.event_count:
             events = events[:self.event_count]
 
-        if TORCH_AVAILABLE:
-            flow = torch.from_numpy(flow)
-            events = torch.from_numpy(events)
+        # ----- augment before graph -----
+        if self.split == "train":
+            # warp = np.random.uniform(0.5, 1.5)
+            # events[:, 2] *= warp  # warp timestamp
 
-        f, p, e = self.generate_graph(events)
+            if random.random() < 0.5:
+                events[:, 0] = self.width - 1 - events[:, 0]
 
-        # Edge dropout (except self loops)
+        # ----- build graph -----
+        events_torch = torch.from_numpy(events)
+        f, p, e = self.generate_graph(events_torch)  # positions: [N',3]
+
+        # Apply edge dropout
         if self.split == "train":
             mask = torch.rand(e.size(0)) > 0.25
-            keep = mask | (e[:, 0] == e[:, 1])   # keep self loops
+            keep = mask | (e[:, 0] == e[:, 1])
             e = e[keep]
+
+        # convert to numpy before interpolation
+        p_np = p.numpy()
+        xs = p_np[:,0].astype(np.int32)
+        ys = p_np[:,1].astype(np.int32)
+        ts_norm = p_np[:,2]
+
+        # ----- recover real timestamps -----
+        # convert normalized time back to real slice timestamps
+        t_min = events[:,2].min()
+        ts_real = ts_norm / self.norm_t * self.event_window + t_min
+
+        # ----- vectorized GT interpolation -----
+        gt_ts = self._flow_ts[seq_idx]
+        idx = np.searchsorted(gt_ts, ts_real, side="right") - 1
+        idx = np.clip(idx, 0, len(gt_ts) - 2)
+
+        t0 = gt_ts[idx]
+        t1 = gt_ts[idx + 1]
+        alpha = (ts_real - t0) / (t1 - t0 + 1e-9)
+
+        x_flow_full, y_flow_full = self._flow[seq_idx]
+
+        xs = np.clip(xs, 0, self.width - 1)
+        ys = np.clip(ys, 0, self.height - 1)
+
+        flow = np.zeros((len(xs), 2), dtype=np.float32)
+        flow[:,0] = (1 - alpha) * x_flow_full[idx, ys, xs] + alpha * x_flow_full[idx+1, ys, xs]
+        flow[:,1] = (1 - alpha) * y_flow_full[idx, ys, xs] + alpha * y_flow_full[idx+1, ys, xs]
+
+        # ----- apply augmentation on flow only (after graph) -----
+        if self.split == "train":
+            # flow *= warp  # match timestamp warp
+
+            if random.random() < 0.5:
+                flow[:,0] *= -1  # flip vx
+
+        # ----- Convert to torch -----
+        events = torch.from_numpy(events)
+        flow = torch.from_numpy(flow)
 
         return {
             "events": events,
             "features": f.to(torch.float32),
             "positions": p.to(torch.float32),
             "edges": e.to(torch.long),
-            "flow": flow.to(torch.float32),
+            "flow": flow.to(torch.float32),  # [N', 2] aligned with graph
             "timestamp": float(self._flow_ts[seq_idx][frame_idx]),
             "sequence": self.sequence_names[seq_idx],
             "camera": cam,
             "frame_idx": frame_idx,
         }
+
+
     
     # ----------------------------------------------------------
     def generate_graph(self, events):
@@ -201,6 +227,21 @@ class MVSECDataset(Dataset):
         clip_events = clip_events.to(torch.int64)
         features, positions, edges = matrix_neighbour.generate_edges(clip_events, self.radius, 346, 260, self.filtering, self.delta_t)
         return features, positions, edges
+    
+    def _interp_event_flow_pixel(self, seq_idx, t_event, x, y):
+        x_flow_full, y_flow_full = self._flow[seq_idx]
+        ts = self._flow_ts[seq_idx]
+
+        i = np.searchsorted(ts, t_event, side="right") - 1
+        i = np.clip(i, 0, len(ts) - 2)
+
+        t0, t1 = ts[i], ts[i+1]
+        alpha = (t_event - t0) / (t1 - t0 + 1e-9)
+
+        vx = (1 - alpha) * x_flow_full[i, y, x] + alpha * x_flow_full[i+1, y, x]
+        vy = (1 - alpha) * y_flow_full[i, y, x] + alpha * y_flow_full[i+1, y, x]
+
+        return vx, vy
 
 
 if __name__ == '__main__':

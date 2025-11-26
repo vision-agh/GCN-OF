@@ -26,7 +26,7 @@ def collate_fn(batch):
     edges = torch.cat(edges_list, dim=0)                                # [total_E,2]
 
     # stack flows (image-like tensor)
-    flows = torch.stack([b["flow"] for b in batch], dim=0)              # [B,2,H,W]
+    flows = torch.cat([b["flow"] for b in batch], dim=0)     # [total_N, 2]
 
     # concatenate events if needed for visualization or raw use
     raw_events = torch.cat([b["events"] for b in batch], dim=0)

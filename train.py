@@ -19,9 +19,9 @@ print(cfg_ds)
 train_ds = MVSECDataset(cfg=cfg_ds, split="train")
 test_ds  = MVSECDataset(cfg=cfg_ds, split="test")
 
-train_loader = DataLoader(train_ds, batch_size=4, num_workers=4,
+train_loader = DataLoader(train_ds, batch_size=1, num_workers=1,
                           shuffle=True, collate_fn=collate_fn)
-test_loader  = DataLoader(test_ds, batch_size=4, num_workers=4,
+test_loader  = DataLoader(test_ds, batch_size=1, num_workers=1,
                           shuffle=False, collate_fn=collate_fn)
 
 
@@ -29,7 +29,7 @@ test_loader  = DataLoader(test_ds, batch_size=4, num_workers=4,
 device = "cuda"
 model = Model().to(device)
 
-optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
+optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-5)
 
 
 # ==================================================
@@ -47,9 +47,7 @@ def train_one_epoch():
                      batch['edge_index'].to(device),
                      batch['batch'].to(device))
 
-        gt_nodes = sample_flow_at_nodes(batch['flow'].to(device),
-                                        batch['pos'].to(device),
-                                        batch['batch'].to(device))
+        gt_nodes = batch["flow"].to(device) 
 
         loss, l1, smooth = optical_flow_loss(pred, gt_nodes, batch['edge_index'].to(device))
         loss.backward()
@@ -74,13 +72,23 @@ def evaluate():
                          batch['edge_index'].to(device),
                          batch['batch'].to(device))
 
-            gt_nodes = sample_flow_at_nodes(batch['flow'].to(device),
-                                            batch['pos'].to(device),
-                                            batch['batch'].to(device))
+            gt_nodes = batch["flow"].to(device)
+            pos = batch["pos"].to(device)
 
-            total_aee.append(AEE(pred, gt_nodes).item())
-            total_acc.append(flow_accuracy(pred, gt_nodes).item())
-            total_out.append(percent_outliers(pred, gt_nodes).item())
+            # ---- HUGNet-style: evaluate only on last half of slice ----
+            half = cfg_ds.graph.norm_t * 0.5               # normalized time midpoint
+            mask = pos[:, 2] >= half                       # boolean mask
+
+            pred_valid = pred[mask]
+            gt_valid   = gt_nodes[mask]
+
+            # skip if slice has no valid nodes
+            if pred_valid.numel() == 0:
+                continue
+
+            total_aee.append(AEE(pred_valid, gt_valid).item())
+            total_acc.append(flow_accuracy(pred_valid, gt_valid).item())
+            total_out.append(percent_outliers(pred_valid, gt_valid).item())
 
     return np.mean(total_aee), np.mean(total_acc), np.mean(total_out)
 
