@@ -50,7 +50,7 @@ def train_one_epoch():
         gt_nodes = batch["flow"].to(device) 
 
         loss, l1, smooth = optical_flow_loss(pred, 
-                                             gt_nodes / 10., 
+                                             gt_nodes / 5., 
                                              batch['edge_index'].to(device))
         loss.backward()
         optimizer.step()
@@ -128,13 +128,13 @@ def evaluate():
 
             gt = batch["flow"].to(device)
 
-            pred = pred * 10
+            pred = pred * 5
 
             total_aee.append(AEE(pred, gt).item())
             total_acc.append(flow_accuracy(pred, gt).item())
             total_out.append(percent_outliers(pred, gt).item())
 
-            if epoch > 5:
+            if epoch > 20:
                 mask = (batch['batch'] == 0)
                 visualize_and_save(batch['pos'][mask],
                                 pred[mask].cpu(),

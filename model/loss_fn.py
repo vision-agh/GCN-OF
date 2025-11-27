@@ -55,4 +55,4 @@ def optical_flow_loss(pred, gt, edge_index):
     l_sl1 = smooth_l1_loss(pred, gt)
     l_smooth = graph_charbonnier_loss(pred, edge_index)
 
-    return l_sl1 + 0.0 * l_smooth, l_sl1, l_smooth
+    return l_sl1 + 0.1 * l_smooth, l_sl1, l_smooth
