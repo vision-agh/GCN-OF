@@ -29,6 +29,8 @@ test_loader  = DataLoader(test_ds, batch_size=1, num_workers=1,
 device = "cuda"
 model = Model().to(device)
 
+print(sum(p.numel() for p in model.parameters() if p.requires_grad))
+
 optimizer = optim.AdamW(model.parameters(), lr=5e-4)
 scheduler = ReduceLROnPlateau(optimizer, "min", factor=0.5, patience=10, threshold=0.05)
 
@@ -133,7 +135,7 @@ def evaluate():
             total_acc.append(flow_accuracy(pred, gt).item())
             total_out.append(percent_outliers(pred, gt).item())
 
-            if epoch > 20:
+            if epoch > 200:
                 mask = (batch['batch'] == 0)
                 visualize_and_save(batch['pos'][mask],
                                 pred[mask].cpu(),

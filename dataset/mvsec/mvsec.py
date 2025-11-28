@@ -151,7 +151,7 @@ class MVSECDataset(Dataset):
         f, p, e, normals, flows = self.generate_graph(events_torch)  # positions: [N',3]
         f = f.unsqueeze(1)
 
-        f = torch.cat([f, flows/20.], dim=1)
+        # f = torch.cat([f, flows/20.], dim=1)
 
         # Apply edge dropout
         if self.split == "train":

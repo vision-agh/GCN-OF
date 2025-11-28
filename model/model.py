@@ -14,7 +14,7 @@ class Model(torch.nn.Module):
 
         self.scale = nn.Parameter(torch.ones(2), requires_grad=False)
 
-        self.conv0 = MyPointTransformerConv(6, 64)
+        self.conv0 = MyPointTransformerConv(4, 64)
         # self.conv0 = MyPointNetConv(6+3, 64)
         self.convs = nn.ModuleList(
             [MyPointTransformerConv(64, 64) for _ in range(4)]
